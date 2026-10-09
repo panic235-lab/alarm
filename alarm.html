@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>간격 알람</title>
+<style>
+/* 레이아웃: 340×560 작은 창에 맞춘 한 화면 도구. 위 카운트다운, 아래 버튼과 접히는 설정 */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --ink:#1b2430; --muted:#5d6b7a; --line:#d5dce3;
+  --accent:#d9480f; --accent-soft:#fde6db; --ok:#2b8a3e; --warn:#b7791f;
+  --flash-a:#ff3b1f; --flash-b:#ffe14d;
+  --f-body:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",system-ui,sans-serif;
+  --f-num:Consolas,"SF Mono",Menlo,ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#12171d; --surface:#1b222b; --ink:#e8edf2; --muted:#93a1b0; --line:#2c3743;
+  --accent:#ff7a3d; --accent-soft:#3a2418; --ok:#5cc272; --warn:#e0b04a; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45}
+[hidden]{display:none!important}
+button,input,select{font:inherit}
+button{cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:10px 8px;font-weight:600}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* 시작 화면(큰 창으로 열었을 때) */
+.launch{max-width:420px;margin:0 auto;padding:40px 16px;display:flex;flex-direction:column;gap:14px;text-align:center}
+.launch h1{margin:0;font-size:1.4rem}
+.launch p{margin:0;color:var(--muted)}
+.launch .big{background:var(--accent);border-color:var(--accent);color:#fff;font-size:1.1rem;padding:14px}
+.launch .plain{background:none;border:none;color:var(--muted);text-decoration:underline;font-weight:400}
+
+/* 알람 화면 */
+.app{max-width:400px;margin:0 auto;padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.top{display:flex;justify-content:space-between;align-items:center}
+.top h1{margin:0;font-size:.95rem}
+.top span{font-size:.75rem;color:var(--muted)}
+.topr{display:flex;align-items:center;gap:8px}
+.pin{padding:4px 8px;font-size:.75rem;font-weight:600}
+.pin[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.dial{position:relative;width:190px;max-width:100%;aspect-ratio:1;margin:0 auto}
+.dial svg{width:100%;height:100%;transform:rotate(-90deg)}
+.dial circle{fill:none;stroke-width:9}
+.track{stroke:var(--line)}
+.prog{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset .25s linear}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:2px}
+.time{font-family:var(--f-num);font-weight:700;font-size:2.4rem;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.sub{font-size:.75rem;color:var(--muted);padding:0 18px}
+.stats{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+.stats b{font-family:var(--f-num);color:var(--ink);font-variant-numeric:tabular-nums}
+.btns{display:grid;grid-template-columns:2fr 1fr;gap:8px}
+#mainBtn{background:var(--accent);border-color:var(--accent);color:#fff;font-size:1.05rem;padding:12px 8px}
+#mainBtn.stop{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+#mainBtn.confirm{background:var(--ok);border-color:var(--ok);font-size:1.3rem}
+
+details{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+summary{padding:9px 12px;cursor:pointer;font-weight:600;font-size:.85rem}
+.set{padding:0 12px 12px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.lbl{font-size:.8rem;color:var(--muted);min-width:4.5em}
+.dur input{width:4.2em;font-family:var(--f-num);font-size:1.1rem;padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);text-align:right}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:500;font-family:var(--f-num)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+select,.num{padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.check{display:flex;align-items:center;gap:6px;font-size:.85rem}
+.check input{width:16px;height:16px;accent-color:var(--accent)}
+.note{font-size:.75rem;color:var(--muted);margin:0}
+.log{list-style:none;margin:0;padding:0 12px 10px;display:flex;flex-direction:column;gap:3px;font-family:var(--f-num);font-size:.78rem;color:var(--muted)}
+.log li{display:flex;justify-content:space-between;gap:6px}
+.log b{color:var(--ink);font-weight:500}
+.log .late{color:var(--warn)}
+
+/* 알람: 창 전체 깜빡임 */
+body.flash{animation:flash .5s steps(1) infinite}
+body.flash .app{background:transparent}
+@keyframes flash{0%{background:var(--flash-a)}50%{background:var(--flash-b)}}
+body.flash .time,body.flash .sub,body.flash .stats,body.flash .stats b,body.flash .top h1,body.flash .top span{color:#111}
+body.flash .track{stroke:rgba(0,0,0,.15)}
+body.flash .prog{stroke:#111}
+</style>
+</head>
+<body>
+
+<!-- 큰 창(일반 탭)으로 열었을 때 보이는 시작 화면 -->
+<section class="launch" id="launch" hidden>
+  <h1>간격 알람</h1>
+  <p>정해 둔 간격마다 음성으로 알려주고 창 전체가 깜빡입니다. 확인을 누른 시각부터 다음 간격을 다시 셉니다.</p>
+  <button class="big" id="openMini" type="button">작은 창으로 열기</button>
+  <p id="popupMsg" hidden>팝업이 차단되었습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주세요.</p>
+  <button class="plain" id="useHere" type="button">이 창에서 그대로 쓰기</button>
+</section>
+
+<p class="note" id="pipNote" style="padding:24px 16px;text-align:center" hidden>알람이 항상 위 창에 떠 있습니다. 이 창은 <b>최소화만 하고 닫지 마세요</b>. 닫으면 알람도 꺼집니다.</p>
+
+<main class="app" id="app" hidden>
+  <div class="top"><h1>간격 알람</h1><div class="topr"><span id="clock">--:--</span><button id="pinBtn" class="pin" type="button" title="다른 창 위에 항상 띄우기">📌 항상 위</button></div></div>
+
+  <div class="dial">
+    <svg viewBox="0 0 120 120" aria-hidden="true">
+      <circle class="track" cx="60" cy="60" r="52"/>
+      <circle class="prog" id="prog" cx="60" cy="60" r="52"/>
+    </svg>
+    <div class="center">
+      <div class="time" id="time">50:00</div>
+      <div class="sub" id="sub">대기 중</div>
+    </div>
+  </div>
+
+  <div class="stats"><span>다음 알람 <b id="nextAt">--:--</b></span><span>확인 <b id="count">0</b>회</span></div>
+
+  <div class="btns">
+    <button id="mainBtn" type="button">시작</button>
+    <button id="sideBtn" type="button">소리 테스트</button>
+  </div>
+
+  <details id="setBox" open>
+    <summary>설정</summary>
+    <div class="set">
+      <div class="row dur">
+        <span class="lbl">간격</span>
+        <input id="min" type="number" min="0" max="999" value="50" aria-label="분"> 분
+        <input id="sec" type="number" min="0" max="59" value="0" aria-label="초"> 초
+      </div>
+      <div class="chips" id="presets">
+        <button type="button" class="chip" data-m="10">10분</button>
+        <button type="button" class="chip" data-m="25">25분</button>
+        <button type="button" class="chip" data-m="30">30분</button>
+        <button type="button" class="chip" data-m="50" aria-pressed="true">50분</button>
+        <button type="button" class="chip" data-m="55">55분</button>
+        <button type="button" class="chip" data-m="60">60분</button>
+      </div>
+      <div class="row">
+        <label class="lbl" for="renag">다시 알림</label>
+        <select id="renag">
+          <option value="15">15초마다</option>
+          <option value="30" selected>30초마다</option>
+          <option value="60">1분마다</option>
+          <option value="0">한 번만</option>
+        </select>
+      </div>
+      <div class="row">
+        <label class="lbl" for="repeat">반복</label>
+        <select id="repeat">
+          <option value="0" selected>계속</option>
+          <option value="n">횟수 지정</option>
+        </select>
+        <input id="times" class="num" type="number" min="1" max="99" value="4" aria-label="반복 횟수" style="width:4em" hidden>
+      </div>
+      <label class="check"><input id="voice" type="checkbox" checked> 음성 안내 ("50분이 되었습니다")</label>
+      <label class="check"><input id="beep" type="checkbox" checked> 알람음</label>
+      <label class="check"><input id="flash" type="checkbox" checked> 창 전체 깜빡임</label>
+      <p class="note">창을 최소화하지 말고 화면 한쪽에 띄워 두세요. 다른 창 뒤에 가려져도 소리는 울립니다.</p>
+    </div>
+  </details>
+
+  <details id="logBox" hidden>
+    <summary>확인 기록</summary>
+    <ul class="log" id="log"></ul>
+  </details>
+</main>
+
+<script>
+(() => {
+  let doc = document;                       // 항상 위 창으로 옮기면 그 창의 문서
+  const $ = id => doc.getElementById(id) || document.getElementById(id);
+  const W = 340, H = 600;               // 작은 창 크기
+  const params = new URLSearchParams(location.search);
+  const isMini = params.has('mini') || !!window.opener;
+
+  // ---------- 작은 창 띄우기 ----------
+  function openMini(){
+    const left = Math.max(0, (screen.availWidth||1200) - W - 20);
+    const url = location.pathname + '?mini=1';
+    const w = window.open(url, 'intervalAlarm', `popup=yes,width=${W},height=${H},left=${left},top=60`);
+    if(!w){ $('popupMsg').hidden = false; return false; }
+    w.focus();
+    return true;
+  }
+  function showApp(){ $('launch').hidden = true; $('app').hidden = false; }
+
+  if(isMini){
+    showApp();
+    try{ window.resizeTo(W, H); }catch(e){}
+  } else {
+    $('launch').hidden = false;
+    // 바로 작은 창을 시도 (브라우저가 막으면 버튼으로)
+    if(openMini()){ $('launch').querySelector('p').textContent = '작은 창이 열렸습니다. 이 탭은 닫아도 됩니다.'; }
+    $('popupMsg').hidden = true;
+  }
+  $('openMini').addEventListener('click', () => {
+    if(openMini()) $('launch').querySelector('p').textContent = '작은 창이 열렸습니다. 이 탭은 닫아도 됩니다.';
+  });
+  $('useHere').addEventListener('click', showApp);
+
+  // ---------- 상태 ----------
+  const C = 2*Math.PI*52, prog = $('prog');
+  prog.style.strokeDasharray = C; prog.style.strokeDashoffset = 0;
+  let running=false, ringing=false, cycleStart=0, ringAt=0, lastNag=0, intervalMs=0, fired=0, limit=0, audio=null;
+  const baseTitle = document.title;
+
+  const getInterval = () => {
+    const m = Math.max(0, parseInt($('min').value)||0);
+    const s = Math.min(59, Math.max(0, parseInt($('sec').value)||0));
+    return (m*60+s)*1000;
+  };
+  const fmt = ms => {
+    const t = Math.max(0, Math.ceil(ms/1000));
+    const h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60;
+    const p = n => String(n).padStart(2,'0');
+    return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+  };
+  const clock = ms => new Date(ms).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});
+  function phrase(ms){
+    const t = Math.round(ms/1000), m = Math.floor(t/60), s = t%60;
+    if(m && s) return `${m}분 ${s}초가 되었습니다`;
+    if(m) return `${m}분이 되었습니다`;
+    return `${s}초가 되었습니다`;
+  }
+
+  // ---------- 소리 ----------
+  function beep(){
+    if(!$('beep').checked) return 0;
+    try{
+      audio = audio || new (window.AudioContext||window.webkitAudioContext)();
+      if(audio.state==='suspended') audio.resume();
+      const now = audio.currentTime;
+      [0,0.3,0.6].forEach(off=>{
+        const o=audio.createOscillator(), g=audio.createGain();
+        o.type='square'; o.frequency.value=880;
+        g.gain.setValueAtTime(0.0001,now+off);
+        g.gain.exponentialRampToValueAtTime(0.3,now+off+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,now+off+0.22);
+        o.connect(g).connect(audio.destination); o.start(now+off); o.stop(now+off+0.25);
+      });
+    }catch(e){}
+    return 900;
+  }
+  function speak(text){
+    if(!$('voice').checked || !('speechSynthesis' in window)) return;
+    try{
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang='ko-KR'; u.rate=1; u.volume=1;
+      const ko = speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith('ko'));
+      if(ko) u.voice = ko;
+      speechSynthesis.speak(u);
+    }catch(e){}
+  }
+  if('speechSynthesis' in window){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
+
+  function alarm(){
+    const wait = beep();
+    setTimeout(()=>speak(phrase(intervalMs)), wait);
+    if('vibrate' in navigator){ try{ navigator.vibrate([800,300,800]); }catch(e){} }
+    try{ window.focus(); }catch(e){}
+    if('Notification' in window && Notification.permission==='granted' && !pipWin){
+      try{
+        const n = new Notification('간격 알람', {body: phrase(intervalMs) + ' · 눌러서 확인', requireInteraction:true, tag:'interval-alarm', renotify:true});
+        n.onclick = () => { try{ window.focus(); }catch(e){} n.close(); };
+      }catch(e){}
+    }
+  }
+  function setFlash(on){
+    doc.body.classList.toggle('flash', on && $('flash').checked);
+    if(doc !== document) document.body.classList.remove('flash');
+  }
+
+  // ---------- 화면 ----------
+  function setButtons(){
+    const mb=$('mainBtn'), sb=$('sideBtn');
+    mb.classList.remove('stop','confirm');
+    if(!running){ mb.textContent='시작'; sb.textContent='소리 테스트'; }
+    else if(ringing){ mb.textContent='확인'; mb.classList.add('confirm'); sb.textContent='정지'; }
+    else { mb.textContent='정지'; mb.classList.add('stop'); sb.textContent='소리 테스트'; }
+    doc.querySelectorAll('#setBox input, #setBox select, .chip').forEach(el=>{ if(el.id!=='renag' && el.id!=='voice' && el.id!=='beep' && el.id!=='flash') el.disabled = running; });
+  }
+
+  let titleFlip=false;
+  function update(){
+    const now = Date.now();
+    $('clock').textContent = new Date(now).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+    if(!running){
+      $('time').textContent = fmt(getInterval()); prog.style.strokeDashoffset = 0;
+      $('nextAt').textContent='--:--'; document.title = baseTitle; return;
+    }
+    if(!ringing && now >= cycleStart + intervalMs){
+      ringing=true; ringAt=cycleStart+intervalMs; lastNag=now;
+      alarm(); setFlash(true); setButtons();
+    }
+    if(ringing){
+      const nag = (+$('renag').value)*1000;
+      if(nag && now-lastNag >= nag){ lastNag=now; alarm(); }
+      $('time').textContent = '+' + fmt(now-ringAt);
+      prog.style.strokeDashoffset = 0;
+      $('nextAt').textContent = '확인 대기';
+      $('sub').textContent = `${phrase(intervalMs)} · 확인을 누르세요`;
+      titleFlip = !titleFlip; document.title = titleFlip ? '⏰ 확인!' : baseTitle;
+      return;
+    }
+    document.title = `${fmt(cycleStart+intervalMs-now)} · ${baseTitle}`;
+    const left = cycleStart + intervalMs - now;
+    $('time').textContent = fmt(left);
+    prog.style.strokeDashoffset = C*(1-left/intervalMs);
+    $('nextAt').textContent = clock(cycleStart+intervalMs);
+    $('sub').textContent = limit ? `${fired+1} / ${limit}회차 진행 중` : `${fired+1}회차 진행 중`;
+  }
+
+  function confirmAlarm(){
+    const now = Date.now();
+    try{ speechSynthesis.cancel(); }catch(e){}
+    setFlash(false);
+    fired++; $('count').textContent = fired;
+    const late = Math.round((now-ringAt)/1000);
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${fired}회</span><span>울림 <b>${clock(ringAt)}</b></span><span>확인 <b>${clock(now)}</b></span><span class="${late>=60?'late':''}">+${fmt(late*1000)}</span>`;
+    $('log').prepend(li); $('logBox').hidden = false;
+    ringing = false;
+    if(limit && fired >= limit){ stop(true); return; }
+    cycleStart = now;                       // 확인 누른 시각부터 다시 계산
+    setButtons(); update();
+  }
+
+  function start(){
+    intervalMs = getInterval();
+    if(intervalMs < 5000){ $('sub').textContent='간격은 5초 이상으로 정해 주세요'; return; }
+    limit = $('repeat').value==='n' ? Math.max(1, parseInt($('times').value)||1) : 0;
+    running=true; ringing=false; fired=0; cycleStart=Date.now();
+    $('count').textContent='0'; $('log').innerHTML=''; $('logBox').hidden=true;
+    $('setBox').open = false;
+    try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume(); }catch(e){}
+    if('Notification' in window && Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(e){} }
+    setButtons(); update();
+  }
+  function stop(done){
+    running=false; ringing=false; setFlash(false);
+    try{ speechSynthesis.cancel(); }catch(e){}
+    setButtons(); update();
+    $('sub').textContent = done ? `완료 · ${fired}회 확인` : '정지됨';
+  }
+
+  $('mainBtn').addEventListener('click',()=>{ if(!running) start(); else if(ringing) confirmAlarm(); else stop(false); });
+  $('sideBtn').addEventListener('click',()=>{
+    if(running && ringing){ stop(false); return; }
+    const wait = beep(); setTimeout(()=>speak(phrase(getInterval())), wait);
+  });
+  $('flash').addEventListener('change',()=>setFlash(ringing));
+  $('presets').addEventListener('click',e=>{
+    const b=e.target.closest('.chip'); if(!b || b.disabled) return;
+    $('min').value=b.dataset.m; $('sec').value=0; syncChips(); update();
+  });
+  function syncChips(){
+    doc.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed', String(c.dataset.m===String($('min').value) && (+$('sec').value||0)===0)));
+  }
+  ['min','sec'].forEach(id=>$(id).addEventListener('input',()=>{ syncChips(); update(); }));
+  $('repeat').addEventListener('change',()=>{ $('times').hidden = $('repeat').value!=='n'; });
+  // 확인은 스페이스·엔터로도
+  const onKey = e => { if(ringing && (e.key===' '||e.key==='Enter')){ e.preventDefault(); confirmAlarm(); } };
+  document.addEventListener('keydown', onKey);
+
+  // ---------- 항상 위 창 (크롬·엣지의 문서 PIP 기능) ----------
+  let pipWin = null;
+  const canPip = 'documentPictureInPicture' in window;
+  if(!canPip) $('pinBtn').hidden = true;
+  async function togglePin(){
+    if(pipWin){ pipWin.close(); return; }
+    try{
+      pipWin = await documentPictureInPicture.requestWindow({width: W, height: H});
+    }catch(e){ $('sub').textContent = '항상 위 창을 열 수 없습니다'; return; }
+    const pd = pipWin.document;
+    pd.documentElement.lang = 'ko';
+    [...document.styleSheets].forEach(sh => {
+      try{ const st = pd.createElement('style'); st.textContent = [...sh.cssRules].map(r=>r.cssText).join('\n'); pd.head.appendChild(st); }catch(e){}
+    });
+    pd.title = '간격 알람';
+    const app = $('app');
+    pd.body.appendChild(app);
+    doc = pd;
+    pd.addEventListener('keydown', onKey);
+    $('pinBtn').setAttribute('aria-pressed','true'); $('pinBtn').textContent = '📌 고정됨';
+    document.body.classList.remove('flash');
+    $('launch').hidden = true;
+    const holder = document.getElementById('pipNote'); if(holder) holder.hidden = false;
+    setFlash(ringing);
+    pipWin.addEventListener('pagehide', () => {
+      document.body.appendChild(app);
+      doc = document; pipWin = null;
+      $('pinBtn').setAttribute('aria-pressed','false'); $('pinBtn').textContent = '📌 항상 위';
+      const h = document.getElementById('pipNote'); if(h) h.hidden = true;
+      $('app').hidden = false;
+      setFlash(ringing);
+    });
+  }
+  $('pinBtn').addEventListener('click', togglePin);
+
+  // 창이 뒤에 있어도 느려지지 않도록 워커로 시간 확인
+  let ticker = null;
+  try{
+    const blob = new Blob(['setInterval(()=>postMessage(0),250)'], {type:'text/javascript'});
+    ticker = new Worker(URL.createObjectURL(blob));
+    ticker.onmessage = update;
+  }catch(e){ setInterval(update, 250); }
+
+  update();
+})();
+</script>
+</body>
+</html>
